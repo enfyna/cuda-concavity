@@ -127,10 +127,11 @@ void graph_draw_line_value_at_x(Graph* g, double x)
 {
     for (size_t i = 0; i < g->lines.count; i++) {
         Line* line = g->lines.items[i];
-        for (size_t j = 0; j < line->count; j++) {
+        for (size_t j = 1; j < line->count; j++) {
             Vector2 point = line->points[j];
-            if (fabs(x - point.x) <= 0.1) {
-                graph_draw_point(g, point, 4, line->color);
+            Vector2 prev = line->points[j - 1];
+            if (prev.x - 0.1 < x && x < point.x) {
+                graph_draw_point(g, prev, 4, line->color);
                 break;
             };
         }

@@ -37,7 +37,7 @@ int main(int argc, char* argv[])
     g.st_current.pos = g.st_reset.pos;
     g.st_current.scale = g.st_reset.scale;
 
-    Polygon concave_pg = {
+    Polygon pg_pacman = {
         .name = "Pacman",
         .count = 20,
         .points = (Vector2[]) {
@@ -64,7 +64,7 @@ int main(int argc, char* argv[])
         }
     };
 
-    Polygon convex_pg = {
+    Polygon pg_circle = {
         .name = "Circle",
         .count = 20,
         .points = (Vector2[]) {
@@ -93,9 +93,9 @@ int main(int argc, char* argv[])
 
     Polygon pg;
     if (argc == 2) {
-        pg = concave_pg;
+        pg = pg_pacman;
     } else {
-        pg = convex_pg;
+        pg = pg_circle;
     }
 
     Vector2* points = malloc(sizeof(Vector2) * pg.count);
@@ -104,7 +104,7 @@ int main(int argc, char* argv[])
     bool concavity = is_concave(pg.count, pg.points);
 
     char buf_concv[128];
-    sprintf(buf_concv, "Is %s concave ? %s", pg.name, (concavity) ? "True" : "False");
+    sprintf(buf_concv, "Is %s concave ? %s", pg.name, (concavity) ? "Yes" : "No");
     char buf_angle[128];
 
     printf("%s\n", buf_concv);

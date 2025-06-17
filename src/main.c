@@ -1,15 +1,23 @@
+#define _XOPEN_SOURCE 600
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
+
 #include <assert.h>
 #include <dlfcn.h>
 #include <math.h>
-#include <stdbool.h>
 #include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "graph.h"
 #include "raylib.h"
 #include "raymath.h"
+
+#define CIRCLE_MAX (3600000 * 7)
 
 typedef struct {
     const char* name;
@@ -17,15 +25,29 @@ typedef struct {
     Vector2* points;
 } Polygon;
 
-typedef bool(func_cuda)(size_t count, Vector2* points);
+typedef bool(f_concavity)(size_t count, Vector2* points);
+
+double get_seconds(void)
+{
+    struct timespec ts;
+    int res = clock_gettime(CLOCK_MONOTONIC, &ts);
+    assert(res != -1);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
 
 int main(int argc, char* argv[])
 {
     (void)argv;
 
-    void* handle = dlopen("./build/cuda.so", RTLD_NOW);
-    func_cuda* is_concave = (func_cuda*)dlsym(handle, "is_concave");
-    if (is_concave == NULL) {
+    void* h_cuda = dlopen("./build/cuda.so", RTLD_NOW);
+    f_concavity* is_concave_cuda = (f_concavity*)dlsym(h_cuda, "is_concave");
+    if (is_concave_cuda == NULL) {
+        assert(false && "is_concave NOT FOUND");
+    }
+
+    void* h_sync = dlopen("./build/sync.so", RTLD_NOW);
+    f_concavity* is_concave_sync = (f_concavity*)dlsym(h_sync, "is_concave");
+    if (is_concave_sync == NULL) {
         assert(false && "is_concave NOT FOUND");
     }
 
@@ -37,10 +59,13 @@ int main(int argc, char* argv[])
     g.st_current.pos = g.st_reset.pos;
     g.st_current.scale = g.st_reset.scale;
 
-    Polygon pg_pacman = {
-        .name = "Pacman",
-        .count = 20,
-        .points = (Vector2[]) {
+    g.show_legend = false;
+
+    Polygon pg;
+    if (argc == 2) {
+        pg.name = "Pacman";
+        pg.count = 20;
+        pg.points = (Vector2[]) {
             { 5.0, 0.0 },
             { 9.51, 3.09 },
             { 8.09, 5.88 },
@@ -61,47 +86,39 @@ int main(int argc, char* argv[])
             { 5.88, -8.09 },
             { 8.09, -5.88 },
             { 9.51, -3.09 },
-        }
-    };
-
-    Polygon pg_circle = {
-        .name = "Circle",
-        .count = 20,
-        .points = (Vector2[]) {
-            { 10.0, 0.0 },
-            { 9.51, 3.09 },
-            { 8.09, 5.88 },
-            { 5.88, 8.09 },
-            { 3.09, 9.51 },
-            { 0.0, 10.0 },
-            { -3.09, 9.51 },
-            { -5.88, 8.09 },
-            { -8.09, 5.88 },
-            { -9.51, 3.09 },
-            { -10.0, 0.0 },
-            { -9.51, -3.09 },
-            { -8.09, -5.88 },
-            { -5.88, -8.09 },
-            { -3.09, -9.51 },
-            { 0.0, -10.0 },
-            { 3.09, -9.51 },
-            { 5.88, -8.09 },
-            { 8.09, -5.88 },
-            { 9.51, -3.09 },
-        }
-    };
-
-    Polygon pg;
-    if (argc == 2) {
-        pg = pg_pacman;
+        };
     } else {
-        pg = pg_circle;
+        pg.name = "Circle";
+        pg.count = CIRCLE_MAX;
+
+        pg.points = malloc(sizeof(Vector2) * pg.count);
+
+        long double deg = 360 / (long double)(pg.count - 1);
+        long double radius = 20;
+        size_t i = 0;
+
+        for (long double cdeg = 0; cdeg <= 360; cdeg += deg) {
+            long double y = sin(cdeg * DEG2RAD) * radius;
+            long double x = cos(cdeg * DEG2RAD) * radius;
+            pg.points[i++] = (Vector2) { x, y };
+        }
+
+        printf("count: %zu\n", pg.count);
+        assert(i == pg.count);
     }
 
-    Vector2* points = malloc(sizeof(Vector2) * pg.count);
-    memcpy(points, pg.points, sizeof(Vector2) * pg.count);
+    double start = get_seconds();
+    bool concavity_serial = is_concave_sync(pg.count, pg.points);
+    double end = get_seconds();
 
-    bool concavity = is_concave(pg.count, pg.points);
+    double start_paralell = get_seconds();
+    bool concavity = is_concave_cuda(pg.count, pg.points);
+    double end_paralell = get_seconds();
+
+    assert(concavity == concavity_serial);
+
+    printf("parallel time: total: %f\n", end_paralell - start_paralell);
+    printf("serial time: total: %f\n", end - start);
 
     char buf_concv[128];
     sprintf(buf_concv, "Is %s concave ? %s", pg.name, (concavity) ? "Yes" : "No");
@@ -109,7 +126,7 @@ int main(int argc, char* argv[])
 
     printf("%s\n", buf_concv);
 
-    // exit(0);
+    exit(0);
 
     Line* es[pg.count];
     for (size_t i = 0; i < pg.count; i++) {
@@ -194,7 +211,8 @@ int main(int argc, char* argv[])
         EndDrawing();
     }
 
-    dlclose(handle);
+    dlclose(h_cuda);
+    dlclose(h_sync);
     graph_free(&g);
 
     return 0;
